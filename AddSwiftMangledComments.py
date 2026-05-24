@@ -3,6 +3,7 @@
 import re
 import argparse
 import os
+import sys
 
 class SwiftDemangler:
     def __init__(self, symbol):
@@ -13,6 +14,7 @@ class SwiftDemangler:
         self.kind = "Unknown"
         self.access = "default"
         self.detailed_info = []
+        self.substitutions = []     # Back-reference stack — pushed every time a complete nominal type/module is resolved
 
     def demangle(self):
         # 1. Check Prefix
@@ -77,6 +79,70 @@ class SwiftDemangler:
         self.ptr += length
         return ident
 
+
+    # Substitution Stack
+
+    def _push_substitution(self, name):
+        # Every fully-parsed nominal type or module gets pushed here so that
+        # later back-references (S0_, S1_, etc.) can resolve it
+        if name:
+            self.substitutions.append(name)
+
+    def _decode_substitution_index(self):
+        # Parses the numeric/alpha index suffix that follows 'S' for a back-reference.
+        #
+        # Swift uses a bijective base-36 scheme terminated by '_':
+        #   S_   → index 0  (first item pushed)
+        #   S0_  → index 1
+        #   S1_  → index 2
+        #   ...
+        #   S9_  → index 10
+        #   SA_  → index 11
+        #   SZ_  → index 36
+        #   S00_ → index 37  (multi-char for large indices)
+        #
+        # Returns the integer index, or None if this doesn't look like a back-ref.
+        saved_ptr = self.ptr
+        index_str = ""
+
+        while self.ptr < self.length:
+            c = self.raw[self.ptr]
+            if c == '_':
+                self.ptr += 1       # Consume the '_' terminator
+                break
+            elif c.isdigit() or c.isupper():
+                index_str += c
+                self.ptr += 1
+            else:
+                # Not a substitution index — restore pointer and bail
+                self.ptr = saved_ptr
+                return None
+
+        # Empty string before '_' → index 0
+        if index_str == "":
+            return 0
+
+        # Bijective base-36 decode: digits 0–9 map to values 1–10, A–Z to 11–36
+        n = 0
+        for ch in index_str:
+            n *= 36
+            if ch.isdigit():
+                n += int(ch) + 1
+            else:
+                n += ord(ch) - ord('A') + 11
+        return n
+
+    def _resolve_substitution(self):
+        # Called when 'S' is followed by something that isn't a known
+        # standard-lib abbreviation. Decodes the index and looks it up
+        # in the substitution stack.
+        idx = self._decode_substitution_index()
+        if idx is not None and idx < len(self.substitutions):
+            return self.substitutions[idx]
+        return None
+
+
+    # Known Type Tables
     def _parse_known_type(self, char):
         # Mapping common Swift Standard Library short codes
         # See: https://github.com/swiftlang/swift/blob/main/include/swift/Demangling/StandardTypesMangling.def
@@ -168,6 +234,10 @@ class SwiftDemangler:
         # Otherwise, look it up in the standard table
         return standard_types.get(char, f"UnknownType({char})")
 
+    # Single-letter codes that are known standard-lib abbreviations after 'S'
+    # Everything outside this set triggers a back-reference lookup instead
+    _STANDARD_ABBREVS = set('AabDdfhIiJNnOPpRrSsuVvWwqBEeFGHjKkLlMmQTtUXxYyZz')
+
     def _parse_sequence(self):
         # Main parsing loop
         while self.ptr < self.length:
@@ -176,21 +246,37 @@ class SwiftDemangler:
             # 1. Parsing Identifiers (Digits start identifiers)
             if c.isdigit():
                 ident = self._parse_identifier()
-                if ident: self.components.append(ident)
+                if ident:
+                    self.components.append(ident)
+                    # Every parsed identifier that makes up a module/type path is
+                    # substitutable — push the current accumulated path
+                    self._push_substitution(".".join(self.components))
                 continue
 
             # 2. Parsing Actions/Types (Letters)
             self._next() # Consume command char
             
             # --- Nominal Types ---
-            if c == 'V': 
+            if c == 'V':
                 self.detailed_info.append("Struct")
-            elif c == 'C': 
+                # Push the fully-qualified name built so far as a substitution target
+                if self.components:
+                    self._push_substitution(".".join(self.components))
+
+            elif c == 'C':
                 self.detailed_info.append("Class")
-            elif c == 'O': 
+                if self.components:
+                    self._push_substitution(".".join(self.components))
+
+            elif c == 'O':
                 self.detailed_info.append("Enum")
-            elif c == 'P': 
+                if self.components:
+                    self._push_substitution(".".join(self.components))
+
+            elif c == 'P':
                 self.detailed_info.append("Protocol")
+                if self.components:
+                    self._push_substitution(".".join(self.components))
             
             # --- Functions & Accessors ---
             elif c == 'F': 
@@ -215,12 +301,33 @@ class SwiftDemangler:
             elif c == 'p':
                 self.detailed_info.append("Property")
             
-            # --- Standard Types (Recursion stop for this simplified parser) ---
+            # --- Standard Library Types & Back-References ---
             elif c == 'S':
-                # Swift Standard Library Types
-                next_c = self._next()
-                type_name = self._parse_known_type(next_c)
-                self.detailed_info.append(f"Return={type_name}")
+                next_c = self._peek()
+
+                if next_c == 'c':
+                    # 'Sc' prefix → Swift Concurrency namespace
+                    self._next()    # Consume 'c'
+                    type_name = self._parse_known_type('c')
+                    self.detailed_info.append(f"Type={type_name}")
+                    self._push_substitution(type_name)
+
+                elif next_c in self._STANDARD_ABBREVS:
+                    # Single-letter standard library abbreviation (Si=Int, SS=String, etc.)
+                    self._next()    # Consume the abbreviation char
+                    type_name = self._parse_known_type(next_c)
+                    self.detailed_info.append(f"Type={type_name}")
+                    # Standard types are themselves substitutable
+                    self._push_substitution(type_name)
+
+                else:
+                    # Not a known abbreviation — must be a back-reference (S0_, S_, SA_, etc.)
+                    resolved = self._resolve_substitution()
+                    if resolved:
+                        self.components.append(resolved)
+                        self.detailed_info.append(f"Subst={resolved}")
+                    else:
+                        self.detailed_info.append("Subst=?")
             
             elif c == 't':
                 # Tuple or ending
