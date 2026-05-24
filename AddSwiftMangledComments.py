@@ -1,6 +1,8 @@
 #  Swift Demangler
 
 import re
+import argparse
+import os
 
 class SwiftDemangler:
     def __init__(self, symbol):
