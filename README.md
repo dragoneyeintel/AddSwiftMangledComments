@@ -1,5 +1,5 @@
 # Swift Demangler
-JS + HTML swift symbol demangler: You can also find this live @ https://www.dragoneyeintel.com/ \
+JS + HTML swift symbol demangler: You can also find this live (along with a full writeup) @ https://www.dragoneyeintel.com/ \
 \
 <img src="https://github.com/dragoneyeintel/AddSwiftMangledComments/blob/main/Example%20IMGs/Picture4.png?raw=true" width="600" alt="Picture 4">
 
