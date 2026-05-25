@@ -1,0 +1,1226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Swift Demangler</title>
+    <style>
+        *, *::before, *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html, body {
+            height: 100%;
+            width: 100%;
+            overflow: hidden;
+            background: #ffffff;
+            font-family: 'Chicago', 'Geneva', 'Charcoal', monospace;
+            font-size: 12px;
+            color: #000000;
+        }
+
+        .window {
+            display: flex;
+            flex-direction: column;
+            width: 100vw;
+            height: 100vh;
+            background: #ffffff;
+            border: 2px solid #000000;
+        }
+
+        .panes {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .pane {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+            .pane + .pane {
+                border-top: 1px solid #000000;
+            }
+
+        .pane-label {
+            flex-shrink: 0;
+            height: 15px;
+            background: #000000;
+            color: #ffffff;
+            font-size: 10px;
+            font-weight: bold;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            display: flex;
+            align-items: center;
+            padding: 0 6px;
+            user-select: none;
+        }
+
+            .pane-label .lbl-right {
+                margin-left: auto;
+                font-weight: normal;
+                letter-spacing: 0;
+                opacity: 0.75;
+                font-size: 9px;
+            }
+
+        .scroll-host {
+            flex: 1;
+            min-height: 0;
+            min-width: 0;
+            overflow: hidden;
+            position: relative;
+            background: #ffffff;
+        }
+
+            .scroll-host textarea {
+                position: absolute;
+                inset: 0;
+                width: 100%;
+                height: 100%;
+                border: none;
+                outline: none;
+                resize: none;
+                overflow: auto;
+                white-space: pre;
+                word-wrap: normal;
+                font-family: 'Menlo', 'Courier New', 'Courier', monospace;
+                font-size: 12px;
+                line-height: 1.5;
+                padding: 5px 7px;
+                background: #ffffff;
+                color: #000000;
+                tab-size: 4;
+                -moz-tab-size: 4;
+            }
+
+                .scroll-host textarea::placeholder {
+                    color: #aaaaaa;
+                }
+
+            .scroll-host pre {
+                position: absolute;
+                inset: 0;
+                width: 100%;
+                height: 100%;
+                margin: 0;
+                padding: 5px 7px;
+                overflow: auto;
+                white-space: pre;
+                font-family: 'Menlo', 'Courier New', 'Courier', monospace;
+                font-size: 12px;
+                line-height: 1.5;
+                background: #ffffff;
+                color: #000000;
+            }
+
+        .comment-text {
+            color: #555555;
+        }
+
+        .placeholder-text {
+            color: #aaaaaa;
+        }
+
+        .tok {
+            cursor: crosshair;
+            border-bottom: 2px solid transparent;
+            transition: filter 0.04s;
+        }
+
+        .tok-0 {
+            background: #d6eaf8;
+            border-color: #2e86c1;
+        }
+
+        .tok-1 {
+            background: #d5f5e3;
+            border-color: #1e8449;
+        }
+
+        .tok-2 {
+            background: #fdebd0;
+            border-color: #ca6f1e;
+        }
+
+        .tok-3 {
+            background: #f9ebea;
+            border-color: #c0392b;
+        }
+
+        .tok-4 {
+            background: #e8daef;
+            border-color: #7d3c98;
+        }
+
+        .tok-5 {
+            background: #fef9e7;
+            border-color: #b7950b;
+        }
+
+        .tok-6 {
+            background: #d1f2eb;
+            border-color: #148f77;
+        }
+
+        .tok-7 {
+            background: #eaf2ff;
+            border-color: #1a5276;
+        }
+
+        .tok:hover {
+            filter: brightness(0.84);
+        }
+
+        #tooltip {
+            display: none;
+            position: fixed;
+            z-index: 9999;
+            pointer-events: none;
+            background: #ffffff;
+            border: 1px solid #000000;
+            box-shadow: 2px 2px 0 #000000;
+            padding: 5px 9px 6px;
+            font-family: 'Chicago', 'Geneva', 'Charcoal', monospace;
+            font-size: 11px;
+            line-height: 1.55;
+            max-width: 460px;
+            white-space: normal;
+        }
+
+            #tooltip .tt-label {
+                font-weight: bold;
+                font-size: 12px;
+                border-bottom: 1px solid #000000;
+                margin-bottom: 3px;
+                padding-bottom: 2px;
+                display: block;
+            }
+
+            #tooltip .tt-detail {
+                display: block;
+            }
+
+            #tooltip .tt-raw {
+                color: #555555;
+                font-size: 10px;
+                font-family: 'Menlo', 'Courier New', monospace;
+                display: block;
+                margin-top: 3px;
+                border-top: 1px dotted #aaaaaa;
+                padding-top: 2px;
+            }
+
+        .statusbar {
+            flex-shrink: 0;
+            height: 16px;
+            border-top: 1px solid #000000;
+            background: #ffffff;
+            display: flex;
+            align-items: center;
+            padding: 0 7px;
+            gap: 14px;
+            font-size: 10px;
+            color: #444444;
+            user-select: none;
+        }
+
+            .statusbar .s-msg {
+                flex: 1;
+            }
+
+            .statusbar .s-btn {
+                cursor: pointer;
+                font-weight: bold;
+                color: #000000;
+                padding: 0 4px;
+                border: 1px solid #000000;
+                line-height: 13px;
+            }
+
+                .statusbar .s-btn:hover {
+                    background: #000000;
+                    color: #ffffff;
+                }
+
+                .statusbar .s-btn:active {
+                    opacity: 0.7;
+                }
+
+        ::-webkit-scrollbar {
+            width: 15px;
+            height: 15px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #ffffff;
+            border: 1px solid #000000;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #c0c0c0;
+            border: 1px solid #000000;
+        }
+
+            ::-webkit-scrollbar-thumb:hover {
+                background: #888888;
+            }
+
+        ::-webkit-scrollbar-corner {
+            background: #c0c0c0;
+            border: 1px solid #000000;
+        }
+
+        ::-webkit-scrollbar-button {
+            background: #c0c0c0;
+            border: 1px solid #000000;
+            display: block;
+            height: 15px;
+            width: 15px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="tooltip">
+        <span class="tt-label" id="tt-label"></span>
+        <span class="tt-detail" id="tt-detail"></span>
+        <span class="tt-raw" id="tt-raw"></span>
+    </div>
+
+    <div class="window">
+        <div class="titlebar">
+            <div class="titlebar-stripes"></div>
+            <div class="titlebar-btn"></div>
+            <div class="titlebar-btn"></div>
+        </div>
+
+        <div class="panes">
+            <div class="pane">
+                <div class="pane-label">
+                    Input <span class="lbl-right" id="inputCount"></span>
+                </div>
+                <div class="scroll-host">
+                    <textarea id="inputArea" spellcheck="false"
+                              placeholder="Paste pseudocode or assembly here&#10;&#10;e.g.  bl    _$s16MusicKitInternal07GenericA4ItemO9tvEpisodeyAcA9TVEpisodeVCAcmFWC&#10;      call  _$s5MyApp10MyProtocolP6doWorkySSSiF"></textarea>
+                </div>
+            </div>
+
+            <div class="pane">
+                <div class="pane-label">
+                    Demangled Output <span class="lbl-right" id="symbolCount"></span>
+                </div>
+                <div class="scroll-host">
+                    <pre id="outputPre"><span class="placeholder-text">Output will appear here as you type...</span></pre>
+                </div>
+            </div>
+        </div>
+
+        <div class="statusbar">
+            <span class="s-msg" id="statusMsg">Ready.</span>
+            <span class="s-btn" onclick="copyOutput()">Copy Output</span>
+            <span class="s-btn" onclick="clearAll()">Clear</span>
+        </div>
+    </div>
+
+    <script>
+
+        class SwiftDemangler {
+            constructor(symbol) {
+                this.raw = symbol;
+                this.ptr = 0;
+                this.length = symbol.length;
+                this.components = [];
+                this.kind = 'Unknown';
+                this.access = 'default';
+                this.detailed_info = [];
+                this.substitutions = [];
+                this._justParsedIdent = false;
+                this._inEntityPath = true;
+                this.tokens = [];
+            }
+
+            _tok(start, end, label, detail) {
+                if (end > start) this.tokens.push({ start, end, label, detail });
+            }
+
+            demangle() {
+                if (this.raw.startsWith('_$s')) { this._tok(0, 3, 'Prefix', 'Swift 5+ mangled symbol prefix (_$s)'); this.ptr = 3; }
+                else if (this.raw.startsWith('$s')) { this._tok(0, 2, 'Prefix', 'Swift 5+ mangled symbol prefix ($s)'); this.ptr = 2; }
+                else return null;
+                try { this._parseSequence(); return this._formatResult(); }
+                catch (e) { return null; }
+            }
+
+            _formatResult() {
+                const namePath = this.components.join('.');
+                let details = `demangled name = ${namePath}`;
+                if (this.kind) details += `, type = ${this.kind}`;
+                if (this.detailed_info.length) details += ` (${this.detailed_info.join(', ')})`;
+                return details;
+            }
+
+            _peek() { return this.ptr < this.length ? this.raw[this.ptr] : null; }
+            _next() { const c = this._peek(); if (c !== null) this.ptr++; return c; }
+
+            _readInt() {
+                let s = '';
+                while (this.ptr < this.length && /\d/.test(this.raw[this.ptr])) s += this.raw[this.ptr++];
+                return s ? parseInt(s, 10) : 0;
+            }
+
+            _readIndex() {
+                if (this.ptr < this.length && this.raw[this.ptr] === '_') { this.ptr++; return 0; }
+                const n = this._readInt();
+                if (this.ptr < this.length && this.raw[this.ptr] === '_') this.ptr++;
+                return n + 1;
+            }
+
+            _parseIdentifier() {
+                if (this.ptr >= this.length || !/\d/.test(this.raw[this.ptr])) return null;
+                const numStart = this.ptr;
+                const length = this._readInt();
+                const numEnd = this.ptr;
+                if (this.ptr + length > this.length) return null;
+                const ident = this.raw.slice(this.ptr, this.ptr + length);
+                const identEnd = this.ptr + length;
+                this._tok(numStart, numEnd, 'Length', `Length prefix: ${length} character${length !== 1 ? 's' : ''}`);
+                this._tok(numEnd, identEnd, 'Identifier', `Identifier: "${ident}"`);
+                this.ptr = identEnd;
+                return ident;
+            }
+
+            _pushSubstitution(name) { if (name) this.substitutions.push(name); }
+
+            _decodeSubstitutionIndex() {
+                const saved = this.ptr; let indexStr = '';
+                while (this.ptr < this.length) {
+                    const c = this.raw[this.ptr];
+                    if (c === '_') { this.ptr++; break; }
+                    else if (/[0-9A-Z]/.test(c)) { indexStr += c; this.ptr++; }
+                    else { this.ptr = saved; return null; }
+                }
+                if (indexStr === '') return 0;
+                let n = 0;
+                for (const ch of indexStr) {
+                    n *= 36;
+                    if (/\d/.test(ch)) n += parseInt(ch, 10) + 1;
+                    else n += ch.charCodeAt(0) - 65 + 11;
+                }
+                return n;
+            }
+
+            _resolveSubstitution() {
+                const idx = this._decodeSubstitutionIndex();
+                if (idx !== null && idx < this.substitutions.length) return this.substitutions[idx];
+                return null;
+            }
+
+            _parseGenericParamIndex() {
+                if (this.ptr >= this.length) return 'param(?)';
+                const c = this.raw[this.ptr];
+                if (c === 'z') { this.ptr++; return 'T_0_0'; }
+                if (c === 'd') { this.ptr++; const depth = this._readIndex(); const idx = this._readIndex(); return `T_${depth + 1}_${idx}`; }
+                const idx = this._readIndex(); return `T_0_${idx}`;
+            }
+
+            _parseKnownType(char) {
+                const std = {
+                    'A': 'AutoreleasingUnsafeMutablePointer', 'a': 'Array', 'b': 'Bool', 'D': 'Dictionary',
+                    'd': 'Double', 'f': 'Float', 'h': 'Set', 'I': 'DefaultIndices', 'i': 'Int', 'J': 'Character',
+                    'N': 'ClosedRange', 'n': 'Range', 'O': 'ObjectIdentifier', 'P': 'UnsafePointer',
+                    'p': 'UnsafeMutablePointer', 'R': 'UnsafeBufferPointer', 'r': 'UnsafeMutableBufferPointer',
+                    'S': 'String', 's': 'Substring', 'u': 'UInt', 'V': 'UnsafeRawPointer',
+                    'v': 'UnsafeMutableRawPointer', 'W': 'UnsafeRawBufferPointer',
+                    'w': 'UnsafeMutableRawBufferPointer', 'q': 'Optional', 'B': 'BinaryFloatingPoint',
+                    'E': 'Encodable', 'e': 'Decodable', 'F': 'FloatingPoint', 'G': 'RandomNumberGenerator',
+                    'H': 'Hashable', 'j': 'Numeric', 'K': 'BidirectionalCollection', 'k': 'RandomAccessCollection',
+                    'L': 'Comparable', 'l': 'Collection', 'M': 'MutableCollection', 'm': 'RangeReplaceableCollection',
+                    'Q': 'Equatable', 'T': 'Sequence', 't': 'IteratorProtocol', 'U': 'UnsignedInteger',
+                    'X': 'RangeExpression', 'x': 'Strideable', 'Y': 'RawRepresentable', 'y': 'StringProtocol',
+                    'Z': 'SignedInteger', 'z': 'BinaryInteger',
+                };
+                const conc = {
+                    'A': 'Actor', 'C': 'CheckedContinuation', 'c': 'UnsafeContinuation', 'E': 'CancellationError',
+                    'e': 'UnownedSerialExecutor', 'F': 'Executor', 'f': 'SerialExecutor', 'G': 'TaskGroup',
+                    'g': 'ThrowingTaskGroup', 'h': 'TaskExecutor', 'I': 'AsyncIteratorProtocol', 'i': 'AsyncSequence',
+                    'J': 'UnownedJob', 'M': 'MainActor', 'P': 'TaskPriority', 'S': 'AsyncStream',
+                    's': 'AsyncThrowingStream', 'T': 'Task', 't': 'UnsafeCurrentTask',
+                };
+                if (char === 'c') { const nc = this._next(); return conc[nc] || `UnknownConcurrency(${nc})`; }
+                return std[char] || `UnknownType(${char})`;
+            }
+
+            static get STANDARD_ABBREVS() {
+                return new Set('AabDdfhIiJNnOPpRrSsuVvWwqBEeFGHjKkLlMmQTtUXxYyZz');
+            }
+
+            _parseSequence() {
+                const META_MAP = {
+                    'f': 'FullTypeMetadata', 'P': 'TypeMetadataPattern', 'a': 'TypeMetadataAccessFunction',
+                    'L': 'TypeMetadataLazyCache', 'r': 'GenericTypeCompletionFunction',
+                    'i': 'GenericTypeInstantiationFunction', 'I': 'GenericTypeInstantiationCache',
+                    'l': 'InPlaceTypeInitCache', 'm': 'ClassMetaclass', 'n': 'NominalTypeDescriptor',
+                    'o': 'ClassMetadataImmediateMemberBaseOffset', 'u': 'ClassMethodLookupFunction',
+                    'U': 'ObjCMetadataUpdateCallback', 's': 'ObjCResilientClassStub',
+                    't': 'FullObjCResilientClassStub', 'F': 'FieldDescriptor', 'B': 'BuiltinTypeDescriptor',
+                    'A': 'AssociatedTypeDescriptor', 'C': 'SuperclassDescriptor',
+                    'S': 'ProtocolSelfConformanceDescriptor', 'Q': 'OpaqueTypeDescriptor',
+                    'J': 'NoncanonicalSpecializedGenericMetadataCache',
+                    'N': 'NoncanonicalSpecializedGenericMetadata',
+                    'z': 'CanonicalSpecializedGenericMetadataCachingToken',
+                    'q': 'GlobalWithUniquingPrefix', 'K': 'InstantiationCache', 'p': 'ProtocolDescriptor',
+                };
+                const T_MAP = {
+                    'A': 'PartialApplicationForwarder', 'a': 'ObjCPartialAppForwarder',
+                    'Q': 'AsyncAwaitContinuationPartialFunc', 'Y': 'AsyncSuspendContinuationPartialFunc',
+                    'O': 'ObjCAsSwiftThunk', 'o': 'SwiftAsObjCThunk', 'D': 'DynamicDispatchThunk',
+                    'd': 'DirectMethodReferenceThunk', 'E': 'DistributedActorThunk',
+                    'F': 'DistributedMethodAccessor', 'I': 'DynamicReplaceableImpl',
+                    'u': 'AsyncFunctionPointer', 'X': 'DynamicReplaceableFunctionPointer',
+                    'W': 'ProtocolWitnessThunk', 'S': 'ProtocolSelfConformanceWitnessThunk',
+                    'j': 'ResilientMethodDispatchThunk', 'q': 'MethodDescriptor',
+                    'V': 'VTableOverrideThunk', 'K': 'KeyPathGetter', 'k': 'KeyPathSetter',
+                    'H': 'KeyPathEquality', 'h': 'KeyPathHasher',
+                    'L': 'ProtocolRequirementsBaseDescriptor', 'l': 'AssociatedTypeDescriptor',
+                    'M': 'DefaultAssocTypeWitnessAccessor', 'n': 'AssociatedConformanceDescriptor',
+                    'N': 'DefaultAssocConformanceAccessor', 'b': 'BaseConformanceDescriptor',
+                    'R': 'ReabstractionThunk', 'r': 'ObsoleteReabstractionThunk',
+                    'y': 'ReabstractionThunkWithSelf', 'U': 'ReabstractionThunkWithGlobalActor',
+                    'c': 'CurryThunk', 'm': 'MergedFunction',
+                };
+                const W_MAP = {
+                    'C': 'WitnessTableConformance', 'P': 'ProtocolWitnessTable', 'G': 'GenericWitnessTable',
+                    'I': 'WitnessTableAccessor', 'a': 'ProtocolWitnessTableAccessor',
+                    'l': 'LazyWitnessTableCache', 'D': 'AssociatedTypeDescriptor', 'o': 'WitnessOffset',
+                    'p': 'ProtocolWitnessTablePattern', 'r': 'ResilientWitnessTable',
+                    'L': 'LazyWitnessTableCacheVariable', 't': 'AssocTypeMetadataAccessor',
+                    'T': 'AssocTypeWitnessTableAccessor', 'b': 'BaseProtocolWitnessTableAccessor',
+                };
+                const WO_MAP = {
+                    'y': 'OutlinedCopy', 'e': 'OutlinedConsume', 'r': 'OutlinedRetain', 's': 'OutlinedRelease',
+                    'B': 'OutlinedInitWithTake(noWitness)', 'b': 'OutlinedInitWithTake',
+                    'c': 'OutlinedInitWithCopy', 'C': 'OutlinedInitWithCopy(noWitness)',
+                    'd': 'OutlinedAssignWithTake', 'D': 'OutlinedAssignWithTake(noWitness)',
+                    'f': 'OutlinedAssignWithCopy', 'F': 'OutlinedAssignWithCopy(noWitness)',
+                    'h': 'OutlinedDestroy', 'H': 'OutlinedDestroy(noWitness)',
+                    'i': 'OutlinedStoreEnumTag', 'j': 'OutlinedEnumDestructiveProject', 'g': 'OutlinedEnumGetTag',
+                };
+                const VW_MAP = {
+                    'al': 'AllocateBuffer', 'ca': 'AssignWithCopy', 'ta': 'AssignWithTake',
+                    'de': 'DeallocateBuffer', 'xx': 'Destroy', 'XX': 'DestroyBuffer', 'Xx': 'DestroyArray',
+                    'CP': 'InitBufferWithCopyOfBuffer', 'Cp': 'InitBufferWithCopy', 'cp': 'InitWithCopy',
+                    'TK': 'InitBufferWithTakeOfBuffer', 'Tk': 'InitBufferWithTake', 'tk': 'InitWithTake',
+                    'pr': 'ProjectBuffer', 'xs': 'StoreExtraInhabitant', 'xg': 'GetExtraInhabitantIndex',
+                    'Cc': 'InitArrayWithCopy', 'Tt': 'InitArrayWithTakeFrontToBack',
+                    'tT': 'InitArrayWithTakeBackToFront', 'ug': 'GetEnumTag',
+                    'up': 'DestructiveProjectEnumData', 'ui': 'DestructiveInjectEnumTag',
+                    'et': 'GetEnumTagSinglePayload', 'st': 'StoreEnumTagSinglePayload',
+                };
+                const H_MAP = {
+                    'r': 'ProtocolDescriptorRuntimeRecord', 'n': 'NominalTypeDescriptorRuntimeRecord',
+                    'o': 'OpaqueTypeDescriptorRuntimeRecord', 'c': 'ProtocolConformanceRuntimeRecord',
+                    'F': 'AccessibleFunctionRuntimeRecord', 'C': 'ConcreteProtocolConformance',
+                    'P': 'ProtocolConformanceRef(sameModule)', 'p': 'ProtocolConformanceRef(protoModule)',
+                    'D': 'DependentProtocolConformance', 'I': 'InheritedConformanceLookup',
+                    'A': 'AssociatedConformanceLookup', 'O': 'DependentConformanceLookup',
+                    'X': 'PackProtocolConformance',
+                };
+                const Q_MAP = {
+                    'r': 'OpaqueResultType(first)', 'R': 'OpaqueResultType(index)', 'o': 'OpaqueType',
+                    'O': 'OpaqueResultTypeOfDecl', 'u': 'OpaqueResultType(ObjC,first)',
+                    'U': 'OpaqueResultType(ObjC,index)', 'y': 'AssociatedType', 'z': 'AssocType(shortcut)',
+                    'Y': 'AssocTypeAtDepth', 'Z': 'AssocTypeAtDepthShortcut', 'a': 'AssociatedTypeOf',
+                    'x': 'AssocTypeRelative', 'X': 'AssocTypeListRelative', 'e': 'PackElement',
+                    'p': 'PackExpansion', 'P': 'PackType', 'S': 'SILPackType',
+                };
+                const Y_MAP = {
+                    'a': 'async', 'b': '@Sendable', 'c': 'GlobalActorIsolation', 'A': '@isolated(any)',
+                    'T': 'sending result', 'K': 'throws(typed)', 'C': 'nonisolated(nonsending)',
+                    'i': 'IsolatedParameter',
+                };
+                const BUILTIN_MAP = {
+                    'b': 'Builtin.BridgeObject', 'B': 'Builtin.UnsafeValueBuffer',
+                    'c': 'Builtin.RawUnsafeContinuation', 'D': 'Builtin.DefaultActorStorage',
+                    'e': 'Builtin.Executor', 'd': 'Builtin.NonDefaultDistributedActorStorage',
+                    'I': 'Builtin.IntLiteral', 'j': 'Builtin.Job', 'O': 'Builtin.UnknownObject',
+                    'o': 'Builtin.NativeObject', 'p': 'Builtin.RawPointer', 't': 'Builtin.SILToken',
+                    'w': 'Builtin.Word', 'P': 'Builtin.PackIndex', 'A': 'Builtin.ImplicitActor',
+                };
+
+                while (this.ptr < this.length) {
+                    const c = this._peek();
+
+                    // Digits → identifier
+                    if (/\d/.test(c)) {
+                        const ident = this._parseIdentifier();
+                        if (ident) {
+                            this.components.push(ident);
+                            this._pushSubstitution(this.components.join('.'));
+                            this._justParsedIdent = true;
+                        }
+                        continue;
+                    }
+
+                    const cmdStart = this.ptr;
+                    this._next();
+
+                    // Known module: 's' as first token
+                    if (c === 's' && this._inEntityPath && this.components.length === 0) {
+                        const nc = this._peek();
+                        if (nc === 'C') { this._next(); this.components.push('__C_Synthesized'); this._pushSubstitution('__C_Synthesized'); }
+                        else if (nc === 'o') { this._next(); this.components.push('__C'); this._pushSubstitution('__C'); }
+                        else { this.components.push('Swift'); this._pushSubstitution('Swift'); }
+                        this._tok(cmdStart, this.ptr, 'Module', `Known module: "${this.components[this.components.length - 1]}"`);
+                        this._justParsedIdent = true;
+                        continue;
+                    } else if (c === 's' && !(this._inEntityPath && this.components.length === 0)) {
+                        this.kind = 'Setter';
+                        this._tok(cmdStart, this.ptr, 'Accessor — Setter', 's — setter accessor (set { })');
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    }
+
+                    // 'A' — private discriminator (entity path) / substitution back-ref (entity path) / generic param (type pos)
+                    else if (c === 'A') {
+                        if (this._inEntityPath && this.ptr < this.length && /\d/.test(this.raw[this.ptr])) {
+                            const before = this.ptr;
+                            this.detailed_info.push('PrivateDiscriminator');
+                            const nextIdent = this._parseIdentifier();
+                            if (nextIdent && this.components.length) {
+                                this.components[this.components.length - 1] += nextIdent;
+                                this._pushSubstitution(this.components.join('.'));
+                            }
+                            this._tok(cmdStart, this.ptr, 'Private Discriminator',
+                                'A — private name discriminator: merges the next identifier segment onto the previous to form one compound name');
+                            this._justParsedIdent = true;
+                        } else if (this._inEntityPath) {
+                            const nc = this._peek();
+                            if (nc !== null && /[a-zA-Z]/.test(nc)) {
+                                let letters = '';
+                                while (this.ptr < this.length) {
+                                    const ch = this.raw[this.ptr];
+                                    if (/[a-z]/.test(ch)) { letters += ch; this.ptr++; }
+                                    else if (/[A-Z]/.test(ch)) { letters += ch; this.ptr++; break; }
+                                    else if (/\d/.test(ch)) {
+                                        const count = this._readInt();
+                                        if (this.ptr < this.length) { const rep = this.raw[this.ptr++]; letters += rep.repeat(count); }
+                                        break;
+                                    } else break;
+                                }
+                                for (const letter of letters) {
+                                    const idx = /[a-z]/.test(letter) ? letter.charCodeAt(0) - 97 : letter.charCodeAt(0) - 65;
+                                    if (idx < this.substitutions.length) {
+                                        const resolved = this.substitutions[idx];
+                                        this.components.push(resolved);
+                                        this.detailed_info.push(`Subst=${resolved}`);
+                                    }
+                                }
+                                this._tok(cmdStart, this.ptr, 'Substitution Back-Reference',
+                                    'A… — substitution back-reference chain: resolves letters to previously mangled entities');
+                            } else {
+                                const idx = this._readIndex() + 26;
+                                if (idx < this.substitutions.length) {
+                                    const resolved = this.substitutions[idx];
+                                    this.components.push(resolved); this.detailed_info.push(`Subst=${resolved}`);
+                                    this._tok(cmdStart, this.ptr, 'Substitution Back-Reference', `A — substitution back-ref → "${resolved}"`);
+                                } else {
+                                    this.detailed_info.push('GenericParam(A)');
+                                    this._tok(cmdStart, this.ptr, 'Generic Type Param', 'A — generic type parameter (depth=0, index=0)');
+                                }
+                            }
+                            this._inEntityPath = false; this._justParsedIdent = false;
+                        } else {
+                            this.detailed_info.push('GenericParam(A)');
+                            this._tok(cmdStart, this.ptr, 'Generic Type Param', 'A — generic type parameter reference (depth=0, index=0)');
+                            this._justParsedIdent = false;
+                        }
+                    }
+
+                    // Nominal types
+                    else if (c === 'V') {
+                        this.detailed_info.push('Struct');
+                        this._tok(cmdStart, this.ptr, 'Nominal Type — Struct', 'V — struct declaration');
+                        if (this.components.length) this._pushSubstitution(this.components.join('.'));
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    } else if (c === 'C') {
+                        if (this._justParsedIdent) {
+                            this.detailed_info.push('Class');
+                            this._tok(cmdStart, this.ptr, 'Nominal Type — Class', 'C — class declaration');
+                            if (this.components.length) this._pushSubstitution(this.components.join('.'));
+                        } else {
+                            this.detailed_info.push('AllocatingConstructor');
+                            this._tok(cmdStart, this.ptr, 'Allocating Constructor', 'C — allocating constructor (alloc + init)');
+                        }
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    } else if (c === 'O') {
+                        this.detailed_info.push('Enum');
+                        this._tok(cmdStart, this.ptr, 'Nominal Type — Enum', 'O — enum declaration');
+                        if (this.components.length) this._pushSubstitution(this.components.join('.'));
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    } else if (c === 'P') {
+                        this.detailed_info.push('Protocol');
+                        this._tok(cmdStart, this.ptr, 'Nominal Type — Protocol', 'P — protocol declaration');
+                        if (this.components.length) this._pushSubstitution(this.components.join('.'));
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    }
+
+                    // Generic params
+                    else if (c === 'x') {
+                        this.detailed_info.push('GenericParam(T_0_0)');
+                        this._tok(cmdStart, this.ptr, 'Generic Type Param', 'x — generic param depth=0, idx=0 (first/only type parameter)');
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    } else if (c === 'q') {
+                        const param = this._parseGenericParamIndex();
+                        this.detailed_info.push(`GenericParam(${param})`);
+                        this._tok(cmdStart, this.ptr, 'Generic Type Param', `q — generic param: ${param}`);
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    } else if (c === 'z') {
+                        this.detailed_info.push('GenericParam(T_0_0)');
+                        this._tok(cmdStart, this.ptr, 'Generic Type Param', 'z — generic param index shorthand (depth=0, idx=0)');
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    }
+
+                    // Functions & accessors
+                    else if (c === 'F') {
+                        this.kind = 'Function';
+                        this._tok(cmdStart, this.ptr, 'Entity Kind — Function', 'F — function entity');
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    } else if (c === 'g') {
+                        this.kind = 'Getter';
+                        this._tok(cmdStart, this.ptr, 'Accessor — Getter', 'g — getter accessor (get { })');
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    } else if (c === 'G') {
+                        this.kind = 'GlobalGetter';
+                        this._tok(cmdStart, this.ptr, 'Accessor — Global Getter', 'G — global getter accessor');
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    } else if (c === 'I') {
+                        this.kind = 'Initializer';
+                        this._tok(cmdStart, this.ptr, 'Entity Kind — Initializer', 'I — initializer (init)');
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    } else if (c === 'D') {
+                        this.kind = 'Deallocator';
+                        this._tok(cmdStart, this.ptr, 'Entity Kind — Deallocator', 'D — deallocator (deinit, memory freed)');
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    } else if (c === 'd') {
+                        this.kind = 'Destructor';
+                        this._tok(cmdStart, this.ptr, 'Entity Kind — Destructor', 'd — destructor (deinit body)');
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    } else if (c === 'e') {
+                        this.kind = 'ivar Initializer';
+                        this._tok(cmdStart, this.ptr, 'Entity Kind — ivar Initializer', 'e — ivar (stored property) initializer');
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    }
+
+                    // 'M' — metadata family or modify accessor
+                    else if (c === 'M') {
+                        const nc = this._peek();
+                        if (nc === 'X') {
+                            this.ptr++;
+                            const nc2 = this._peek();
+                            const mxMap = { 'M': 'ModuleDescriptor', 'E': 'ExtensionDescriptor', 'X': 'AnonymousContextDescriptor', 'Y': 'AnonymousContextDescriptorWithName', 'A': 'GenericParameterRef' };
+                            if (nc2 in mxMap) { this._next(); this.detailed_info.push(`MX${nc2}=${mxMap[nc2]}`); this.kind = mxMap[nc2]; }
+                            else { this.detailed_info.push(`MX${nc2 || '?'}`); }
+                            this._tok(cmdStart, this.ptr, 'Module Descriptor', `MX — module/extension/anonymous context descriptor`);
+                        } else if (nc in META_MAP) {
+                            this._next();
+                            this.detailed_info.push(`M${nc}=${META_MAP[nc]}`); this.kind = META_MAP[nc];
+                            this._tok(cmdStart, this.ptr, META_MAP[nc], `M${nc} — ${META_MAP[nc]}`);
+                        } else if (this._justParsedIdent) {
+                            this.kind = 'MaterializeForSet';
+                            this._tok(cmdStart, this.ptr, 'Accessor — MaterializeForSet', 'm — MaterializeForSet (legacy in-place mutation accessor)');
+                        } else {
+                            this.kind = 'Modify Accessor';
+                            this._tok(cmdStart, this.ptr, 'Accessor — Modify', 'M — _modify coroutine accessor');
+                        }
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    }
+
+                    // 'f' family — entity specs
+                    else if (c === 'f') {
+                        const nc = this._peek();
+                        const fMap = {
+                            'C': ['AllocatingConstructor', 'fC=allocating init'], 'c': ['NonAllocatingConstructor', 'fc=init body'],
+                            'D': ['DeallocatingDestructor', 'fD=deallocating deinit'], 'd': ['NonDeallocatingDestructor', 'fd=deinit body'],
+                            'E': [null, 'fE=ivar destroyer'], 'e': [null, 'fe=ivar initializer'],
+                            'i': [null, 'fi=non-local variable initializer'], 'P': [null, 'fP=property wrapper backing initializer'],
+                            'U': [null, 'fU=explicit anonymous closure'], 'u': [null, 'fu=implicit anonymous closure'],
+                            'A': [null, 'fA=default argument generator'], 'Z': [null, 'fZ=isolated deallocating destructor'],
+                            'F': [null, 'fF=property wrapped field init accessor'], 'W': [null, 'fW=property wrapper init from projected value'],
+                        };
+                        if (nc === 'M') {
+                            this._next();
+                            const mc = this._peek();
+                            const macroMap = { 'a': 'attached accessor macro', 'r': 'attached member-attribute macro', 'f': 'freestanding macro', 'm': 'attached member macro', 'p': 'attached peer macro', 'c': 'attached conformance macro', 'e': 'attached extension macro', 'q': 'attached preamble macro', 'b': 'attached body macro', 'u': 'uniquely-named entity' };
+                            if (mc in macroMap) { this._next(); this.detailed_info.push(`fM${mc}=${macroMap[mc]}`); }
+                            else { this.detailed_info.push('fM=macro expansion'); }
+                            this._tok(cmdStart, this.ptr, 'Macro Expansion', `fM — macro expansion`);
+                        } else if (nc in fMap) {
+                            this._next();
+                            if (fMap[nc][0]) this.kind = fMap[nc][0];
+                            this.detailed_info.push(fMap[nc][1]);
+                            this._tok(cmdStart, this.ptr, fMap[nc][0] || fMap[nc][1], `f${nc} — ${fMap[nc][1]}`);
+                        } else {
+                            this.detailed_info.push('PartialApplyForwarder');
+                            this._tok(cmdStart, this.ptr, 'Partial Apply Forwarder', 'f — partial apply forwarder');
+                        }
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    }
+
+                    else if (c === 'v') {
+                        this._tok(cmdStart, this.ptr, 'Variable / Property', 'v — variable/stored property (accessor follows)');
+                        this._justParsedIdent = false;
+                    } else if (c === 'p') {
+                        this.detailed_info.push('Property');
+                        this._tok(cmdStart, this.ptr, 'Property', 'p — property descriptor or subscript');
+                        this._justParsedIdent = false;
+                    }
+
+                    // Function type markers
+                    else if (c === 'c') {
+                        this.detailed_info.push('FuncType');
+                        this._tok(cmdStart, this.ptr, 'Function / Closure Type', 'c — function/closure type constructor (param→return separator)');
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    } else if (c === 'y') {
+                        this.detailed_info.push('Void');
+                        this._tok(cmdStart, this.ptr, 'Void / Empty Type', 'y — void return type or empty parameter list');
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    } else if (c === 'm') {
+                        if (this._justParsedIdent) {
+                            this.kind = 'MaterializeForSet';
+                            this._tok(cmdStart, this.ptr, 'Accessor — MaterializeForSet', 'm — MaterializeForSet (legacy accessor)');
+                        } else {
+                            this.detailed_info.push('Metatype(.Type)');
+                            this._tok(cmdStart, this.ptr, 'Metatype (.Type)', 'm — .Type metatype of the preceding type');
+                        }
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    } else if (c === 'K') {
+                        this.detailed_info.push('throws');
+                        this._tok(cmdStart, this.ptr, 'throws', 'K — throws annotation on function type');
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    } else if (c === 'u') {
+                        this.detailed_info.push('GenericType');
+                        this._tok(cmdStart, this.ptr, 'Generic Type', 'u — generic type (type + generic-signature)');
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    } else if (c === 'Z') {
+                        this.detailed_info.push('StaticMember');
+                        this._tok(cmdStart, this.ptr, 'Static / Class Member', 'Z — static or class-level member');
+                        this._justParsedIdent = false;
+                    } else if (c === 'N') {
+                        this.detailed_info.push('TypeMetadata'); this.kind = 'TypeMetadata';
+                        this._tok(cmdStart, this.ptr, 'Type Metadata', 'N — type metadata address point');
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    } else if (c === 'n') {
+                        this.detailed_info.push('NominalTypeDescriptor');
+                        this._tok(cmdStart, this.ptr, 'Nominal Type Descriptor', 'n — nominal type descriptor (standalone)');
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    }
+
+                    // 'B' Builtin types
+                    else if (c === 'B') {
+                        const nc = this._peek();
+                        if (nc === 'f') { this._next(); const n = this._readInt(); if (this.ptr < this.length && this.raw[this.ptr] === '_') this.ptr++; this.detailed_info.push(`Builtin.Float${n}`); this._tok(cmdStart, this.ptr, 'Builtin Type', `Bf${n}_ — Builtin.Float${n}`); }
+                        else if (nc === 'i') { this._next(); const n = this._readInt(); if (this.ptr < this.length && this.raw[this.ptr] === '_') this.ptr++; this.detailed_info.push(`Builtin.Int${n}`); this._tok(cmdStart, this.ptr, 'Builtin Type', `Bi${n}_ — Builtin.Int${n}`); }
+                        else if (nc in BUILTIN_MAP) { this._next(); this.detailed_info.push(BUILTIN_MAP[nc]); this._tok(cmdStart, this.ptr, 'Builtin Type', `B${nc} — ${BUILTIN_MAP[nc]}`); }
+                        else { this.detailed_info.push('Builtin(?)'); this._tok(cmdStart, this.ptr, 'Builtin Type', 'B — unknown builtin type'); }
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    }
+
+                    // 'H' runtime records
+                    else if (c === 'H') {
+                        const nc = this._peek();
+                        if (nc in H_MAP) { this._next(); this.detailed_info.push(H_MAP[nc]); this._tok(cmdStart, this.ptr, 'Runtime Record', `H${nc} — ${H_MAP[nc]}`); }
+                        else { this.detailed_info.push(`H${nc || '?'}`); this._tok(cmdStart, this.ptr, 'Runtime Record', `H — runtime record`); }
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    }
+
+                    // 'R' requirements
+                    else if (c === 'R') {
+                        const nc = this._peek();
+                        const reqMap = { 'z': 'Req:ConformsTo(T_0_0)', 'l': 'Req:Layout', 'b': 'Req:BaseClass', 's': 'Req:SameType', 'c': 'Req:BaseClassOnAssocType', 'p': 'Req:ProtoOnAssocType', 'P': 'Req:ProtoOnAssocTypeAtDepth', 't': 'Req:SameTypeOnAssocType', 'h': 'Req:SameShape', 'i': 'Req:InverseOnParam', 'j': 'Req:InverseOnAssocType', 'v': 'GenericParamPackMarker' };
+                        if (nc in reqMap) { this._next(); this.detailed_info.push(reqMap[nc]); this._tok(cmdStart, this.ptr, 'Generic Requirement', `R${nc} — ${reqMap[nc]}`); }
+                        else { const param = this._parseGenericParamIndex(); this.detailed_info.push(`Req:ConformsTo(${param})`); this._tok(cmdStart, this.ptr, 'Generic Requirement', `R — conformance requirement on ${param}`); }
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    }
+
+                    // Generic sig terminators
+                    else if (c === 'l') {
+                        this.detailed_info.push('GenericSig');
+                        this._tok(cmdStart, this.ptr, 'Generic Signature', 'l — generic signature terminator (single param depth)');
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    } else if (c === 'r') {
+                        this.detailed_info.push('GenericSig(multi)');
+                        this._tok(cmdStart, this.ptr, 'Generic Signature (multi-depth)', 'r — multi-depth generic signature');
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    } else if (c === '_') {
+                        this.detailed_info.push('Separator');
+                        this._tok(cmdStart, this.ptr, 'Separator / Empty Label', '_ — parameter label separator or empty label');
+                        this._justParsedIdent = false;
+                    }
+
+                    // 'T' thunks
+                    else if (c === 'T') {
+                        const nc = this._peek();
+                        if (nc === 'w') {
+                            this._next(); const nc2 = this._peek();
+                            const tw = { 'b': 'BackDeploymentThunk', 'B': 'BackDeploymentFallback', 'c': 'CoroutineFunctionPointer', 'd': 'DefaultOverride', 'S': 'HasSymbolQueryFunction' };
+                            if (nc2 in tw) { this._next(); this.detailed_info.push(tw[nc2]); this._tok(cmdStart, this.ptr, 'Thunk', `Tw${nc2} — ${tw[nc2]}`); }
+                            else { this.detailed_info.push(`Tw${nc2 || '?'}`); this._tok(cmdStart, this.ptr, 'Thunk', `Tw — thunk`); }
+                        } else if (nc === 'J') { this._next(); this.detailed_info.push('AutoDiffFunction'); this._tok(cmdStart, this.ptr, 'AutoDiff', 'TJ — autodiff function'); }
+                        else if (nc in T_MAP) { this._next(); this.detailed_info.push(T_MAP[nc]); this.kind = T_MAP[nc]; this._tok(cmdStart, this.ptr, T_MAP[nc], `T${nc} — ${T_MAP[nc]}`); }
+                        else { this.detailed_info.push(`Thunk(T${nc || '?'})`); this._tok(cmdStart, this.ptr, 'Thunk', `T — thunk`); }
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    }
+
+                    // 'W' witness tables
+                    else if (c === 'W') {
+                        const nc = this._peek();
+                        if (nc === 'O') {
+                            this._next(); const nc2 = this._peek();
+                            if (nc2 in WO_MAP) { this._next(); this.detailed_info.push(`WO${nc2}=${WO_MAP[nc2]}`); this._tok(cmdStart, this.ptr, 'Outlined Operation', `WO${nc2} — ${WO_MAP[nc2]}`); }
+                            else { this.detailed_info.push(`WO${nc2 || '?'}`); this._tok(cmdStart, this.ptr, 'Outlined Operation', 'WO — outlined operation'); }
+                        } else if (nc === 'V') { this._next(); this.detailed_info.push('ValueWitnessTable'); this.kind = 'ValueWitnessTable'; this._tok(cmdStart, this.ptr, 'Value Witness Table', 'WV — value witness table'); }
+                        else if (nc === 'J') { this._next(); this.detailed_info.push('DifferentiabilityWitness'); this._tok(cmdStart, this.ptr, 'Differentiability Witness', 'WJ — differentiability witness'); }
+                        else if (nc === 'Z') { this._next(); this.detailed_info.push('GlobalVarOneTimeInitFunc'); this._tok(cmdStart, this.ptr, 'One-Time Init Function', 'WZ — global variable one-time initialization function'); }
+                        else if (nc === 'z') { this._next(); this.detailed_info.push('GlobalVarOneTimeInitToken'); this._tok(cmdStart, this.ptr, 'One-Time Init Token', 'Wz — global variable one-time initialization token'); }
+                        else if (nc === 'S') { this._next(); this.detailed_info.push('ProtocolSelfConformanceWitnessTable'); this._tok(cmdStart, this.ptr, 'Protocol Self-Conformance Witness Table', 'WS — protocol self-conformance witness table'); }
+                        else if (nc in W_MAP) { this._next(); this.detailed_info.push(W_MAP[nc]); this._tok(cmdStart, this.ptr, W_MAP[nc], `W${nc} — ${W_MAP[nc]}`); }
+                        else { this.detailed_info.push(`Witness(W${nc || '?'})`); this._tok(cmdStart, this.ptr, 'Witness Table', `W${nc || '?'} — witness table entity`); }
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    }
+
+                    // 'X' special types
+                    else if (c === 'X') {
+                        const nc = this._peek();
+                        if (nc === 'M') { this._next(); const r = this._peek(); const rm = { 't': 'thin', 'T': 'thick', 'o': 'ObjC' }; if (r in rm) { this._next(); this.detailed_info.push(`MetatypeWithRepr(${rm[r]})`); this._tok(cmdStart, this.ptr, 'Metatype With Repr', `XM${r} — metatype (${rm[r]})`); } else { this.detailed_info.push('ExistentialMetatype'); this._tok(cmdStart, this.ptr, 'Existential Metatype', 'XM — existential metatype'); } }
+                        else if (nc === 'm') { this._next(); this.detailed_info.push('ExistentialMetatypeWithRepr'); this._tok(cmdStart, this.ptr, 'Existential Metatype With Repr', 'Xm — existential metatype with representation'); }
+                        else if (nc === 'o') { this._next(); this.detailed_info.push('@unowned'); this._tok(cmdStart, this.ptr, '@unowned', 'Xo — @unowned reference'); }
+                        else if (nc === 'u') { this._next(); this.detailed_info.push('@unowned(unsafe)'); this._tok(cmdStart, this.ptr, '@unowned(unsafe)', 'Xu — @unowned(unsafe) reference'); }
+                        else if (nc === 'w') { this._next(); this.detailed_info.push('@weak'); this._tok(cmdStart, this.ptr, '@weak', 'Xw — @weak reference'); }
+                        else if (nc === 'F') { this._next(); this.detailed_info.push('ImplFunctionType'); this._tok(cmdStart, this.ptr, 'Impl Function Type', 'XF — SIL function implementation type'); }
+                        else if (nc === 'b') { this._next(); this.detailed_info.push('SILBoxType'); this._tok(cmdStart, this.ptr, 'SIL Box Type', 'Xb — SIL @box type (deprecated)'); }
+                        else if (nc === 'x') { this._next(); this.detailed_info.push('SILBoxTypeWithLayout'); this._tok(cmdStart, this.ptr, 'SIL Box Type (layout)', 'Xx — SIL box type with layout'); }
+                        else if (nc === 'X') { this._next(); this.detailed_info.push('GenericSILBoxType'); this._tok(cmdStart, this.ptr, 'Generic SIL Box Type', 'XX — generic SIL box type'); }
+                        else if (nc === 'D') { this._next(); this.detailed_info.push('DynamicSelfType'); this._tok(cmdStart, this.ptr, 'Dynamic Self Type', 'XD — dynamic self type'); }
+                        else if (nc === 'p') { this._next(); this.detailed_info.push('ExistentialMetatypeNoRepr'); this._tok(cmdStart, this.ptr, 'Existential Metatype', 'Xp — existential metatype without representation'); }
+                        else if (nc === 'c') { this._next(); this.detailed_info.push('ExistentialWithSuperclass'); this._tok(cmdStart, this.ptr, 'Existential + Superclass', 'Xc — existential with superclass constraint'); }
+                        else if (nc === 'l') { this._next(); this.detailed_info.push('ExistentialWithAnyObject'); this._tok(cmdStart, this.ptr, 'Existential + AnyObject', 'Xl — existential with AnyObject'); }
+                        else if (nc === 'P') { this._next(); this.detailed_info.push('ConstrainedExistentialType'); this._tok(cmdStart, this.ptr, 'Constrained Existential', 'XP — constrained existential type'); }
+                        else if (nc === 'j') { this._next(); this.detailed_info.push('ExtendedExistentialType'); this._tok(cmdStart, this.ptr, 'Extended Existential', 'Xj — extended existential type'); }
+                        else if (nc === 'g') { this._next(); this.detailed_info.push('ExtendedExistentialShape(noSig)'); this._tok(cmdStart, this.ptr, 'Extended Existential Shape', 'Xg — extended existential shape (no generalization sig)'); }
+                        else if (nc === 'G') { this._next(); this.detailed_info.push('ExtendedExistentialShape(withSig)'); this._tok(cmdStart, this.ptr, 'Extended Existential Shape', 'XG — extended existential shape (with generalization sig)'); }
+                        else if (nc === 'Y') { this._next(); this.detailed_info.push('UnknownNominalType'); this._tok(cmdStart, this.ptr, 'Unknown Nominal Type', 'XY — unknown nominal type'); }
+                        else if (nc === 'Z') { this._next(); this.detailed_info.push('UnknownRuntimeContext'); this._tok(cmdStart, this.ptr, 'Unknown Runtime Context', 'XZ — unknown runtime context'); }
+                        else if (nc === 'S') { this._next(); const s = this._peek(); const sm = { 'q': 'SugaredOptional', 'a': 'SugaredArray', 'D': 'SugaredDictionary', 'A': 'SugaredInlineArray' }; if (s in sm) { this._next(); this.detailed_info.push(sm[s]); this._tok(cmdStart, this.ptr, 'Sugared Type', `XS${s} — ${sm[s]}`); } else { this.detailed_info.push('SugaredType'); this._tok(cmdStart, this.ptr, 'Sugared Type', 'XS — sugared type'); } }
+                        else if (nc !== null && 'fUKBLCAE'.includes(nc)) { this._next(); const fm = { 'f': '@thin function', 'U': 'uncurried function', 'K': '@auto_closure(noescape)', 'B': 'ObjC block', 'L': 'ObjC block(DWARF)', 'C': 'C function pointer', 'A': '@auto_closure(escaping)', 'E': 'noescape function' }; this.detailed_info.push(`SpecialFunc(${fm[nc] || nc})`); this._tok(cmdStart, this.ptr, 'Special Function Type', `X${nc} — ${fm[nc] || nc}`); }
+                        else { this.detailed_info.push(`SpecialType(X${nc || '?'})`); this._tok(cmdStart, this.ptr, 'Special Type', `X${nc || '?'} — special type`); }
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    }
+
+                    // 'S' stdlib + back-refs
+                    else if (c === 'S') {
+                        const nc = this._peek();
+                        if (nc === 'o') { this._next(); this.components.push('__C'); this._pushSubstitution('__C'); this._tok(cmdStart, this.ptr, 'Module', 'So — ObjC/C module (__C)'); this._justParsedIdent = true; continue; }
+                        else if (nc === 'C') { this._next(); this.components.push('__C_Synthesized'); this._pushSubstitution('__C_Synthesized'); this._tok(cmdStart, this.ptr, 'Module', 'SC — Clang-importer-synthesized module'); this._justParsedIdent = true; continue; }
+                        else if (nc === 'c') { this._next(); const tn = this._parseKnownType('c'); this.detailed_info.push(`Type=${tn}`); this._pushSubstitution(tn); this._tok(cmdStart, this.ptr, 'Concurrency Type', `Sc… — Swift Concurrency: ${tn}`); }
+                        else if (nc === 'g') { this._next(); this.detailed_info.push('Type=Optional'); this._pushSubstitution('Optional'); this._tok(cmdStart, this.ptr, 'Optional Shorthand', 'Sg — Optional<T> shorthand'); }
+                        else if (nc !== null && SwiftDemangler.STANDARD_ABBREVS.has(nc)) { this._next(); const tn = this._parseKnownType(nc); this.detailed_info.push(`Type=${tn}`); this._pushSubstitution(tn); this._tok(cmdStart, this.ptr, 'Stdlib Type', `S${nc} — ${tn}`); }
+                        else { const rs = this.ptr; const resolved = this._resolveSubstitution(); if (resolved) { this.components.push(resolved); this.detailed_info.push(`Subst=${resolved}`); this._tok(cmdStart, this.ptr, 'Back-Reference', `S… → "${resolved}"`); } else { this.detailed_info.push('Subst=?'); this._tok(cmdStart, this.ptr, 'Back-Reference (Unresolved)', 'S… — unresolved back-reference'); } }
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    }
+
+                    // 'Q' opaque/associated types
+                    else if (c === 'Q') {
+                        const nc = this._peek();
+                        if (nc in Q_MAP) { this._next(); this.detailed_info.push(Q_MAP[nc]); this._tok(cmdStart, this.ptr, 'Opaque/Associated Type', `Q${nc} — ${Q_MAP[nc]}`); }
+                        else { this.detailed_info.push(`Q${nc || '?'}`); this._tok(cmdStart, this.ptr, 'Opaque/Associated Type', `Q${nc || '?'}`); }
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    }
+
+                    // 'Y' async/sendable annotations
+                    else if (c === 'Y') {
+                        const nc = this._peek();
+                        if (nc in Y_MAP) { this._next(); this.detailed_info.push(Y_MAP[nc]); this._tok(cmdStart, this.ptr, 'Function Annotation', `Y${nc} — ${Y_MAP[nc]}`); }
+                        else { this.detailed_info.push(`Y${nc || '?'}`); this._tok(cmdStart, this.ptr, 'Function Annotation', `Y${nc || '?'}`); }
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    }
+
+                    // 'w' value witnesses
+                    else if (c === 'w') {
+                        const nc = this._peek();
+                        if (nc !== null && this.ptr + 1 < this.length) {
+                            const two = this.raw.slice(this.ptr, this.ptr + 2);
+                            if (two in VW_MAP) { this.ptr += 2; this.detailed_info.push(`ValueWitness(${VW_MAP[two]})`); this._tok(cmdStart, this.ptr, 'Value Witness', `w${two} — ${VW_MAP[two]}`); }
+                            else { this.detailed_info.push(`ValueWitness(w${nc || '?'})`); this._tok(cmdStart, this.ptr, 'Value Witness', `w — value witness`); }
+                        } else { this.detailed_info.push('ValueWitness(?)'); this._tok(cmdStart, this.ptr, 'Value Witness', 'w — value witness'); }
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    }
+
+                    else if (c === 't') {
+                        this.detailed_info.push('Tuple/ParamEnd');
+                        this._tok(cmdStart, this.ptr, 'Tuple / Param List End', 't — tuple type or parameter list terminator');
+                        this._inEntityPath = false; this._justParsedIdent = false;
+                    } else if (c === 'L') {
+                        const nc = this._peek();
+                        if (nc === 'l') { this._next(); this.detailed_info.push('FileDiscriminator'); this._tok(cmdStart, this.ptr, 'File Discriminator', 'Ll — anonymous file-discriminated declaration'); }
+                        else if (nc === 'L') { this._next(); this.detailed_info.push('FileDiscriminatedDecl'); this._tok(cmdStart, this.ptr, 'File-Discriminated Decl', 'LL — file-discriminated declaration'); }
+                        else { const idx = this._readIndex(); this.detailed_info.push(`LocalDiscriminator(${idx})`); this._tok(cmdStart, this.ptr, 'Local Discriminator', `L — locally-discriminated declaration (index ${idx})`); }
+                        this._justParsedIdent = false;
+                    } else if (c === 'E') {
+                        this.detailed_info.push('Extension');
+                        this._tok(cmdStart, this.ptr, 'Extension Context', 'E — extension context');
+                        this._justParsedIdent = false;
+                    } else {
+                        this.detailed_info.push(`Unknown(${c})`);
+                        this._tok(cmdStart, this.ptr, `Unknown ("${c}")`, `'${c}' — unrecognised mangling character at offset ${cmdStart}`);
+                        this._justParsedIdent = false;
+                    }
+
+                    if (this.ptr >= this.length) break;
+                }
+            }
+        }
+
+        //Regex to catch typical Swift symbols in assembly/pseudocode (Catch _$s... and $s...)
+
+        const REGEX_SWIFT = /\b(_?\$s[a-zA-Z0-9_$]+)\b/g;
+
+        // process() — scan lines, demangle and annotate stores token maps keyed by symbol string for the renderer.
+        // behaviour is identical to the Python script's process
+
+        function process(pseudocode_text) {
+            // Scan pseudo for Swift symbols, decode them, and add comments
+            if (!pseudocode_text) return { lines: [], count: 0 };
+
+            const lines = pseudocode_text.split('\n');
+            const result = [];
+
+            // Cache to avoid re-parsing the same symbol 50 times
+            const cache = {};
+            let totalSymbols = 0;
+
+            for (const line of lines) {
+                // Don't process lines that are already comments
+                if (line.trim().startsWith('//')) {
+                    result.push({ raw: line, comments: [], symbolMap: {} });
+                    continue;
+                }
+
+                const matches = [...line.matchAll(new RegExp(REGEX_SWIFT.source, 'g'))];
+                const comments = [];
+                const symbolMap = {};   // symbol string -> tokens array
+
+                for (const m of matches) {
+                    const symbol = m[0];
+                    let entry;
+                    if (symbol in cache) {
+                        entry = cache[symbol];
+                    } else {
+                        const d = new SwiftDemangler(symbol);
+                        const decoded = d.demangle();
+                        entry = { decoded, tokens: d.tokens };
+                        cache[symbol] = entry;
+                    }
+                    if (entry.decoded) {
+                        comments.push(`// Swift mangling - ${entry.decoded}`);
+                        symbolMap[symbol] = entry.tokens;
+                        totalSymbols++;
+                    }
+                }
+
+                // Deduplicate comments (same symbol multiple times on one line)
+                const unique = [...new Set(comments)];
+                result.push({ raw: line, comments: unique, symbolMap });
+            }
+
+            return { lines: result, count: totalSymbols };
+        }
+
+        // Every byte of raw symbol is covered: 
+        // Can be inside a token span or plain escaped text
+        function esc(s) {
+            return s
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        function renderSymbol(raw, tokens) {
+            if (!tokens || tokens.length === 0) return esc(raw);
+
+            // Sort by start position (parser emits in order, but be safe)
+            const sorted = [...tokens].sort((a, b) => a.start - b.start);
+            let html = '';
+            let cursor = 0;
+            let colorIdx = 0;
+
+            for (const tok of sorted) {
+                // Plain text before this token
+                if (tok.start > cursor) html += esc(raw.slice(cursor, tok.start));
+
+                const tokenText = esc(raw.slice(tok.start, tok.end));
+                const cls = `tok tok-${colorIdx % 8}`;
+                html += `<span class="${cls}" data-label="${esc(tok.label)}" data-detail="${esc(tok.detail)}">${tokenText}</span>`;
+                cursor = tok.end;
+                colorIdx++;
+            }
+
+            // Trailing plain text after last token
+            if (cursor < raw.length) html += esc(raw.slice(cursor));
+
+            return html;
+        }
+
+        //Rendering — builds the <pre> innerHTML
+        const PAD = 60; // Match the Python script's column width
+
+        function renderOutput(data) {
+            const pre = document.getElementById('outputPre');
+
+            if (!data || !data.lines || data.lines.length === 0) {
+                pre.innerHTML = '<span class="placeholder-text">Output will appear here as you type...</span>';
+                return;
+            }
+
+            const hasContent = data.lines.some(l => l.raw !== '' || l.comments.length > 0);
+            if (!hasContent) {
+                pre.innerHTML = '<span class="placeholder-text">Output will appear here as you type...</span>';
+                return;
+            }
+
+            let html = '';
+            for (const { raw, comments, symbolMap } of data.lines) {
+                if (comments.length === 0) {
+                    // No symbols on this line — render plain escaped text
+                    html += esc(raw) + '\n';
+                } else {
+                    // Rebuild the line: replace each matched symbol with its annotated span version
+                    const symRegex = new RegExp(REGEX_SWIFT.source, 'g');
+                    let lineHtml = '';
+                    let lastIdx = 0;
+                    let m;
+
+                    while ((m = symRegex.exec(raw)) !== null) {
+                        const sym = m[0];
+                        if (m.index > lastIdx) lineHtml += esc(raw.slice(lastIdx, m.index));
+                        lineHtml += symbolMap[sym]
+                            ? renderSymbol(sym, symbolMap[sym])
+                            : esc(sym);
+                        lastIdx = m.index + sym.length;
+                    }
+                    if (lastIdx < raw.length) lineHtml += esc(raw.slice(lastIdx));
+
+                    // Pad to PAD columns then append comment(s) — matching Python script output
+                    const padSpaces = ' '.repeat(Math.max(1, PAD - raw.length));
+                    const commentStr = comments.map(c => esc(c)).join('  ');
+                    html += lineHtml + padSpaces + `  <span class="comment-text">${commentStr}</span>\n`;
+                }
+            }
+
+            pre.innerHTML = html || '<span class="placeholder-text">No Swift symbols found.</span>';
+        }
+
+        function updateStatus(count, lineCount) {
+            document.getElementById('statusMsg').textContent =
+                count > 0
+                    ? `\u2713 ${count} symbol${count !== 1 ? 's' : ''} demangled.`
+                    : lineCount > 0 ? 'No Swift 5+ symbols detected.' : 'Ready.';
+            document.getElementById('symbolCount').textContent =
+                count > 0 ? `${count} symbol${count !== 1 ? 's' : ''}` : '';
+            document.getElementById('inputCount').textContent =
+                lineCount > 0 ? `${lineCount} line${lineCount !== 1 ? 's' : ''}` : '';
+        }
+
+        // Tooltip — System 1 styled, follows mouse, shows on .tok hover
+        const tooltip = document.getElementById('tooltip');
+        const ttLabel = document.getElementById('tt-label');
+        const ttDetail = document.getElementById('tt-detail');
+        const ttRaw = document.getElementById('tt-raw');
+
+        document.getElementById('outputPre').addEventListener('mouseover', (e) => {
+            const tok = e.target.closest('.tok');
+            if (!tok) { tooltip.style.display = 'none'; return; }
+            ttLabel.textContent = tok.dataset.label || '';
+            ttDetail.textContent = tok.dataset.detail || '';
+            ttRaw.textContent = `raw: "${tok.textContent}"`;
+            tooltip.style.display = 'block';
+        });
+
+        document.getElementById('outputPre').addEventListener('mouseout', (e) => {
+            // Stay visible if still within the same token
+            if (e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('.tok')) return;
+            tooltip.style.display = 'none';
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (tooltip.style.display === 'none') return;
+            const tw = tooltip.offsetWidth, th = tooltip.offsetHeight;
+            const vw = window.innerWidth, vh = window.innerHeight;
+            let x = e.clientX + 14, y = e.clientY + 14;
+            if (x + tw > vw - 4) x = e.clientX - tw - 10;  // Flip left if clipping
+            if (y + th > vh - 4) y = e.clientY - th - 10;  // Flip up if clipping
+            tooltip.style.left = x + 'px';
+            tooltip.style.top = y + 'px';
+        });
+
+        // Live update with debounce
+        let debounceTimer = null;
+
+        function runDemangle() {
+            const input = document.getElementById('inputArea').value;
+            const lineCount = input ? input.split('\n').length : 0;
+
+            if (!input.trim()) {
+                document.getElementById('outputPre').innerHTML =
+                    '<span class="placeholder-text">Output will appear here as you type...</span>';
+                updateStatus(0, 0);
+                return;
+            }
+
+            const data = process(input);
+            renderOutput(data);
+            updateStatus(data.count, lineCount);
+        }
+
+        function clearAll() {
+            document.getElementById('inputArea').value = '';
+            document.getElementById('outputPre').innerHTML =
+                '<span class="placeholder-text">Output will appear here as you type...</span>';
+            updateStatus(0, 0);
+            document.getElementById('statusMsg').textContent = 'Ready.';
+            tooltip.style.display = 'none';
+        }
+
+        function copyOutput() {
+            // Copy plain text — innerText strips span markup, preserves whitespace
+            const text = document.getElementById('outputPre').innerText;
+            navigator.clipboard.writeText(text).catch(() => {
+                // Fallback for browsers without clipboard API
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.cssText = 'position:fixed;opacity:0;top:0;left:0;';
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+            });
+            document.getElementById('statusMsg').textContent = 'Copied to clipboard.';
+            setTimeout(() => { document.getElementById('statusMsg').textContent = 'Ready.'; }, 1500);
+        }
+
+        // Live update on input — debounced at 150 ms
+        document.getElementById('inputArea').addEventListener('input', function () {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(runDemangle, 150);
+        });
+    </script>
+</body>
+</html>
+
